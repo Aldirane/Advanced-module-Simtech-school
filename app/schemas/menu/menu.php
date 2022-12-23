@@ -523,7 +523,7 @@ $schema = [
                     'position' => 800,
                 ],
                 'departments' => [
-                    'href' => 'index.index',
+                    'href' => 'departments.manage_departments',
                     'position' => 400,
                 ]
             ],

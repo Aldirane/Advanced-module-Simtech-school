@@ -465,7 +465,7 @@ if ($mode === 'manage') {
     }
 } elseif ($mode == 'picker') {
     $params = $_REQUEST;
-    $params['exclude_user_types'] = array ('A', 'V');
+    $params['exclude_user_types'] = empty($params['admin']) ? array ('A', 'V') : array ('C', 'V');
     $params['skip_view'] = 'Y';
 
     list($users, $search) = fn_get_users($params, $auth, Registry::get('settings.Appearance.admin_elements_per_page'));

@@ -11656,3 +11656,222 @@ function fn_get_checkout_settings(array $cart)
 
     return $checkout_settings;
 }
+
+function fn_get_department_data($params, $lang_code = CART_LANGUAGE, $get_user_data=false)
+{
+    $department = [];
+    if (!empty($params['department_id'])) {
+        list($departments) = fn_get_departments($params, 1, $lang_code);
+        if (!empty($departments)) {
+            $department = reset($departments);
+            $department['user_ids'] = fn_department_get_links([
+                'department_id' => $department['department_id']
+            ]);
+        }
+    }
+    return $department;
+}
+
+
+function fn_get_departments($params = [], $items_per_page = 3, $lang_code = CART_LANGUAGE)
+{
+    $default_params = array(
+        'page' => 1,
+        'items_per_page' => $items_per_page
+    );
+
+    $params = array_merge($default_params, $params);
+
+    if ($_SERVER['SCRIPT_NAME']=='/' . Registry::get('config.customer_index')) {
+        $params['items_per_page'] = 3;
+    }
+
+    if (AREA == 'C') {
+        $params['status'] = 'A';
+        $params['has_director'] = true;
+        if (empty($params['logged_in'])) {
+            return [];
+        }
+    }
+
+    $sortings = array(
+        'timestamp' => '?:departments.timestamp',
+        'name' => '?:department_descriptions.department',
+        'status' => '?:departments.status',
+    );
+
+    $condition = $limit = $join = '';
+    
+    if (!empty($params['limit'])) {
+        $limit = db_quote(' LIMIT 0, ?i', $params['limit']);
+    }
+    
+    $sorting = db_sort($params, $sortings, 'name', 'asc');
+
+    if (!empty($params['user_ids'])) {
+        $condition .= db_quote(' AND ?:departments.department_id IN (?n)', explode(',', $params['user_ids']));
+    }
+
+    if (!empty($params['department_id'])) {
+        $condition .= db_quote(' AND ?:departments.department_id = ?i', $params['department_id']);
+    }
+
+    if (!empty($params['has_director'])) {
+        $condition .= db_quote(' AND ?:departments.director_id != ?i', 0);
+    }
+
+    if (!empty($params['director_id'])) {
+        $condition .= db_quote(' AND ?:departments.director_id = ?i', $params['director_id']);
+    }
+    if (!empty($params['user_id'])) {
+        $condition .= db_quote(' AND ?:department_links.user_id = ?i', $params['user_id']);
+    }
+
+    if (!empty($params['status'])) {
+        $condition .= db_quote(' AND ?:departments.status = ?s', $params['status']);
+    }
+    
+    if (isset($params['department_name']) && fn_string_not_empty($params['department_name'])) {
+        $condition .= db_quote(' AND ?:department_descriptions.department LIKE ?l', '%' . trim($params['department_name']) . '%');
+    }
+    if (isset($params['status']) && fn_string_not_empty($params['status'])) {
+        $condition .= db_quote(' AND ?:departments.status LIKE ?l', '%' . trim($params['status']) . '%');
+    }
+
+    $fields = array(
+        '?:departments.department_id',
+        '?:departments.director_id',
+        '?:departments.status',
+        '?:departments.timestamp',
+        '?:department_descriptions.department',
+        '?:department_descriptions.description',
+        '?:users.user_id',
+        '?:users.firstname',
+        '?:users.lastname',
+        '?:users.phone',
+    );
+
+
+    $join .= db_quote(' LEFT JOIN ?:department_descriptions ON ?:department_descriptions.department_id = ?:departments.department_id AND ?:department_descriptions.lang_code = ?s', $lang_code);
+    $join .= db_quote(' LEFT JOIN ?:users ON ?:users.user_id = ?:departments.director_id ');
+
+ 
+    if (!empty($params['items_per_page'])) {
+        $params['total_items'] = db_get_field("SELECT COUNT(*) FROM ?:departments $join WHERE 1 $condition");
+        $limit = db_paginate($params['page'], $params['items_per_page'], $params['total_items']);
+    }
+    $departments = db_get_hash_array(
+        "SELECT ?p FROM ?:departments " .
+        $join .
+        "WHERE 1 ?p ?p ?p",
+        'department_id',
+        implode(', ', $fields),
+        $condition,
+        $sorting,
+        $limit
+    );
+
+
+    $department_image_ids = array_keys($departments);
+    $images = fn_get_image_pairs($department_image_ids, 'department', 'M', true, false, $lang_code);
+
+    foreach ($departments as $department_id => $department) {
+        $departments[$department_id]['main_pair'] = !empty($images[$department_id]) ? reset($images[$department_id]) : array();
+    }
+    return array($departments, $params);
+}
+
+function fn_update_department($data, $department_id, $lang_code = DESCR_SL)
+{   
+    $data['timestamp'] = isset($data['timestamp']) ? fn_parse_date($data['timestamp']) : TIME;
+
+    if (!empty($department_id)) {
+        db_query("UPDATE ?:departments SET ?u WHERE department_id = ?i", $data, $department_id);
+        db_query("UPDATE ?:department_descriptions SET ?u WHERE department_id = ?i AND lang_code = ?s", $data, $department_id, $lang_code);
+    } else {
+        $department_id = $data['department_id'] = db_replace_into('departments', $data);
+
+        foreach (Languages::getAll() as $data['lang_code'] => $v) {
+            db_query("REPLACE INTO ?:department_descriptions ?e", $data);
+        }
+    }
+    if (!empty($department_id)) {
+        fn_attach_image_pairs('department', 'department', $department_id, $lang_code);
+    }
+
+    $user_ids = !empty($data['user_ids']) ? $data['user_ids'] : [];
+    
+    fn_department_delete_links($department_id);
+    
+    fn_department_add_links($department_id, $user_ids, $data['director_id']);
+
+
+    return $department_id;
+}
+
+
+function fn_delete_department($department_id)
+{
+    if (!empty($department_id)) {
+        $res = db_query('DELETE FROM ?:departments WHERE department_id = ?i', $department_id);
+        db_query('DELETE FROM ?:department_descriptions WHERE department_id = ?i', $department_id);
+        fn_department_delete_links($department_id);
+    }
+}
+
+function fn_department_delete_links($department_id)
+{
+    $res = db_query('DELETE FROM ?:department_links WHERE department_id = ?i', $department_id);
+}
+
+function fn_department_add_links($department_id, $user_ids, $director_id)
+{
+    if (!empty($department_id) && !empty($director_id)) { 
+        if (!empty($user_ids)) {
+            $user_ids = explode(',',$user_ids);
+            
+            foreach ($user_ids as $user_id) {
+                db_query("REPLACE INTO ?:department_links ?e", [
+                    'user_id' => $user_id,
+                    'department_id' => $department_id,
+                ]);
+            }
+        } 
+    }
+}
+
+function fn_department_get_links($params, $get_user_data=false, $items_per_page=7)
+{
+    if ($get_user_data==true) {
+        $default_params = array(
+            'page' => 1,
+            'items_per_page' => $items_per_page
+        );
+        $params = array_merge($default_params, $params);
+        $sortings = array(
+            'timestamp' => '?:users.last_login',
+            'name' => '?:users.firstname',
+        );
+        $condition=$limit='';
+        $sorting = db_sort($params, $sortings, 'name', 'asc');
+        $fields = array(
+            '?:users.user_id',
+            '?:users.status',
+            '?:users.last_login',
+            '?:users.firstname',
+            '?:users.lastname',
+            '?:users.email',
+            '?:users.phone',
+        );
+        $condition = db_quote(' AND ?:department_links.department_id = ?i', $params['department_id']);
+
+        $join = db_quote("LEFT JOIN ?:users ON ?:users.user_id = ?:department_links.user_id ");
+        if (!empty($params['items_per_page'])) {
+            $params['total_items'] = db_get_field("SELECT COUNT(*) FROM ?:department_links $join WHERE 1 $condition");
+            $limit = db_paginate($params['page'], $params['items_per_page'], $params['total_items']);
+        }
+        $users = db_get_hash_array("SELECT ?p FROM ?:department_links " . $join . " WHERE 1 ?p ?p ?p", 'user_id', implode(', ',$fields), $condition, $sorting, $limit);
+        return array($users, $params);
+    }
+    return !empty( $params['department_id']) ? db_get_fields('select ?:department_links.user_id from ?:department_links where ?:department_links.department_id= ?i', $params['department_id']) : [];
+}
