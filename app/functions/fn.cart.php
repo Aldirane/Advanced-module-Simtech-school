@@ -11829,13 +11829,14 @@ function fn_department_add_links($department_id, $user_ids, $director_id)
     if (!empty($department_id) && !empty($director_id)) { 
         if (!empty($user_ids)) {
             $user_ids = explode(',',$user_ids);
-            
+            $data = [];
             foreach ($user_ids as $user_id) {
-                db_query("REPLACE INTO ?:department_links ?e", [
-                    'user_id' => $user_id,
-                    'department_id' => $department_id,
-                ]);
+                $data[] = [
+                            'user_id' => $user_id,
+                            'department_id' => $department_id,
+                        ];
             }
+            db_query("INSERT INTO ?:department_links ?m", $data);
         } 
     }
 }
