@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($mode == 'update_departments') {
         if (!empty($_REQUEST['departments_ids'])) {
-            foreach ($_REQUEST['departments_ids'] as $department_num => $department_id) {
+            foreach ($_REQUEST['departments_ids'] as $department_id) {
                 fn_update_department($_REQUEST['department_data'][$department_id], $department_id);
             }
         }
@@ -62,7 +62,7 @@ if ($mode == 'add_department' || $mode == 'update_department') {
     }
     Tygh::$app['view']->assign([
         'department_data'=> $department_data,
-        'u_info'=> !empty($department_data['director_id']) ? fn_get_user_short_info($department_data['director_id']) : [],
+        'director_info'=> !empty($department_data['director_id']) ? fn_get_user_short_info($department_data['director_id']) : [],
     ]);
 } elseif ($mode == 'manage_departments') {
     list($departments, $search) = fn_get_departments($_REQUEST, Registry::get('settings.Appearance.products_per_page'), DESCR_SL);

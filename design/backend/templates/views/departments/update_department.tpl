@@ -64,8 +64,8 @@
                 placement="right"
                 display="radio"
                 view_mode="single_button"
-                user_info=$u_info
-                admin=true
+                user_info=$director_info
+                department_director=true
                 }
                 
             </div>
